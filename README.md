@@ -3,6 +3,8 @@
 A comprehensive deep learning system for automated PCB defect detection using EfficientNet-B4 and computer vision techniques.
 
 
+
+
 ## 🚀 Features
 
 - **Automated Defect Detection**: Identifies 6 types of PCB defects (open, short, mousebite, spur, pinhole, spurious copper)
@@ -87,6 +89,11 @@ PCBDEFECT_DETECTION/
 4. Click "Detect Defects"
 5. Download annotated images and CSV logs
 
+![PCB Image 1](Images/1.png)
+![PCB Image 2](Images/2.png)
+![PCB Image 3](Images/3.png)
+
+
 ### Command Line
 ```bash
 # Preprocessing
@@ -166,4 +173,5 @@ This project is for educational and research purposes.
 ## 📞 Support
 
 For issues and questions, please create an issue in the repository.
+
 
