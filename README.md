@@ -150,6 +150,20 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
 - `accuracy_curve.jpg`: Training/validation accuracy
 - `confusion_matrix.jpg`: Test set confusion matrix
 
+<table>
+  <tr>
+    <td align="center">
+      <img src="training_outputs/accuracy_curve.jpg" width="300" />
+      <p>Accuracy Curve</p>
+    </td>
+    <td align="center">
+      <img src="training_outputs/loss_curve.jpg" width="300" />
+      <p>Loss Curve</p>
+    </td>
+  </tr>
+</table>
+
+
 ### Web App
 - Annotated images with bounding boxes
 - CSV logs with prediction details
@@ -183,6 +197,7 @@ This project is for educational and research purposes.
 ## 📞 Support
 
 For issues and questions, please create an issue in the repository.
+
 
 
 
