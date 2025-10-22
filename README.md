@@ -119,8 +119,6 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
 
 ## 📊 Model Performance
 
-![Test Confusion Matrix](evaluation_outputs/test_confusion_matrix.jpg)
-
 - **Test Accuracy**: 98.34%
 - **Per-class Performance**:
   - mousebite: 97.64%
@@ -129,6 +127,7 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
   - short: 99.56%
   - spur: 97.96%
   - spurious copper: 98.67%
+  ![Test Confusion Matrix](evaluation_outputs/test_confusion_matrix.jpg)
 
 ## 🔧 Parameters
 
@@ -184,6 +183,7 @@ This project is for educational and research purposes.
 ## 📞 Support
 
 For issues and questions, please create an issue in the repository.
+
 
 
 
