@@ -2,7 +2,18 @@
 
 A comprehensive deep learning system for automated PCB defect detection using EfficientNet-B4 and computer vision techniques.
 
-
+<table>
+  <tr>
+    <td align="center">
+      <img src="Images/template.jpg" width="300" />
+      <p>Template Image</p>
+    </td>
+    <td align="center">
+      <img src="Images/test.jpg" width="300" />
+      <p>Test Image</p>
+    </td>
+  </tr>
+</table>
 
 
 ## 🚀 Features
@@ -173,5 +184,6 @@ This project is for educational and research purposes.
 ## 📞 Support
 
 For issues and questions, please create an issue in the repository.
+
 
 
