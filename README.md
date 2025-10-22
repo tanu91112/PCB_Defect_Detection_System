@@ -2,6 +2,7 @@
 
 A comprehensive deep learning system for automated PCB defect detection using EfficientNet-B4 and computer vision techniques.
 
+
 ## 🚀 Features
 
 - **Automated Defect Detection**: Identifies 6 types of PCB defects (open, short, mousebite, spur, pinhole, spurious copper)
@@ -100,6 +101,8 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
 
 ## 📊 Model Performance
 
+![Test Confusion Matrix](evaluation_outputs/test_confusion_matrix.jpg)
+
 - **Test Accuracy**: 98.34%
 - **Per-class Performance**:
   - mousebite: 97.64%
@@ -163,3 +166,4 @@ This project is for educational and research purposes.
 ## 📞 Support
 
 For issues and questions, please create an issue in the repository.
+
