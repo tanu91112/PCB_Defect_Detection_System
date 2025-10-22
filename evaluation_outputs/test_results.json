@@ -1,0 +1,114 @@
+{
+  "test_accuracy": 0.98342175066313,
+  "total_samples": 1508,
+  "correct_predictions": 1483,
+  "confusion_matrix": [
+    [
+      289,
+      3,
+      0,
+      0,
+      3,
+      1
+    ],
+    [
+      4,
+      283,
+      3,
+      2,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      222,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      226,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      3,
+      2,
+      240,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      2,
+      0,
+      223
+    ]
+  ],
+  "class_names": [
+    "mousebite",
+    "open",
+    "pinhole",
+    "short",
+    "spur",
+    "spurious copper"
+  ],
+  "classification_report": {
+    "mousebite": {
+      "precision": 0.9829931972789115,
+      "recall": 0.9763513513513513,
+      "f1-score": 0.9796610169491525,
+      "support": 296.0
+    },
+    "open": {
+      "precision": 0.9895104895104895,
+      "recall": 0.9691780821917808,
+      "f1-score": 0.9792387543252595,
+      "support": 292.0
+    },
+    "pinhole": {
+      "precision": 0.9736842105263158,
+      "recall": 1.0,
+      "f1-score": 0.9866666666666667,
+      "support": 222.0
+    },
+    "short": {
+      "precision": 0.9741379310344828,
+      "recall": 0.9955947136563876,
+      "f1-score": 0.9847494553376906,
+      "support": 227.0
+    },
+    "spur": {
+      "precision": 0.9836065573770492,
+      "recall": 0.9795918367346939,
+      "f1-score": 0.9815950920245399,
+      "support": 245.0
+    },
+    "spurious copper": {
+      "precision": 0.9955357142857143,
+      "recall": 0.9867256637168141,
+      "f1-score": 0.9911111111111112,
+      "support": 226.0
+    },
+    "accuracy": 0.98342175066313,
+    "macro avg": {
+      "precision": 0.9832446833354939,
+      "recall": 0.9845736079418379,
+      "f1-score": 0.98383701606907,
+      "support": 1508.0
+    },
+    "weighted avg": {
+      "precision": 0.9835311222806623,
+      "recall": 0.98342175066313,
+      "f1-score": 0.9834067720813688,
+      "support": 1508.0
+    }
+  }
+}
