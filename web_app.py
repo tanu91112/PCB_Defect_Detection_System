@@ -1,73 +1,79 @@
 #!/usr/bin/env python3
 """
-GOAL: Web interface for PCB defect detection and visualization
-- Upload template and test images for defect detection
-- Run preprocessing pipeline to extract defect ROIs
-- Classify defects using trained EfficientNet-B4 model
-- Display results with bounding boxes and class labels
-- Download annotated images and detection reports
+Web app: PCB defect detection + professional PDF report generator.
+- Side-by-side images in report
+- Black page border, blue headings
+- CSV log download (from JSON saved per session)
 """
 
-from flask import Flask, render_template, request, jsonify, send_file, make_response
+from flask import Flask, render_template, request, jsonify, send_file, Response
 import cv2
 import numpy as np
 import torch
-from torch import nn
-from torchvision import transforms, models
-import json
-from pathlib import Path
-import base64
-from PIL import Image
 import io
 import os
-import csv
+import base64
+import json
 import time
+from torch import nn
+from torchvision import transforms, models
+from pathlib import Path
+from PIL import Image
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.platypus import (
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, PageBreak, KeepTogether
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
+os.makedirs("outputs", exist_ok=True)
 
 # Constants
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
-DEFECT_CLASSES = {
-    1: "open", 2: "short", 3: "mousebite", 
-    4: "spur", 5: "pinhole", 6: "spurious copper"
-}
-
-# Global model cache
 model = None
 classes = None
 
+
+# ---------------- LOAD MODEL ----------------
 def load_model():
-    """Load the trained EfficientNet model"""
     global model, classes
     try:
         model_path = "training_outputs/model_best.pth"
         classes_path = "training_outputs/classes.json"
-        
         if not Path(model_path).exists() or not Path(classes_path).exists():
+            print("Model or classes not found.")
             return False
-            
-        # Load classes
+
         with open(classes_path, 'r') as f:
             classes = json.load(f)
-            
-        # Build model
+
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.IMAGENET1K_V1)
         in_feats = model.classifier[-1].in_features
-        model.classifier[-1] = nn.Linear(in_feats, len(classes)) # type: ignore
+        model.classifier[-1] = nn.Linear(in_feats, len(classes))  # type: ignore
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.to(device)
         model.eval()
-        
+        print("✅ Model loaded successfully.")
         return True
     except Exception as e:
         print(f"Error loading model: {e}")
         return False
 
+
+load_model()
+
+
+# ---------------- HELPERS ----------------
 def preprocess_image(image, img_size=128):
-    """Preprocess image for model inference"""
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((img_size, img_size)),
@@ -75,291 +81,414 @@ def preprocess_image(image, img_size=128):
     ])
     return transform(image).unsqueeze(0)
 
-def to_gray(img):
-    """Convert image to grayscale"""
-    if len(img.shape) == 2:
-        return img
-    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-def preprocess_gray(gray):
-    """Preprocess grayscale image"""
-    g = cv2.GaussianBlur(gray, (5, 5), 0)
-    g = cv2.equalizeHist(g)
-    return g
+def image_to_base64(image):
+    _, buffer = cv2.imencode('.jpg', image)
+    return f"data:image/jpeg;base64,{base64.b64encode(buffer).decode()}"
 
-def absdiff_norm(template_gray, test_gray):
-    """Compute absolute difference between template and test"""
-    return cv2.absdiff(test_gray, template_gray)
+
+def create_plot_base64_from_fig(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight')
+    buf.seek(0)
+    return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
+
 
 def mask_from_diff(diff, thresh=30):
-    """Create binary mask from difference image"""
     _, th = cv2.threshold(diff, thresh, 255, cv2.THRESH_BINARY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     opened = cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel, iterations=1)
-    closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel, iterations=2)
+    closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel, iterations=1)
     dilated = cv2.dilate(closed, kernel, iterations=1)
     return dilated
 
-def extract_rois(mask, min_area=50):
-    """Extract ROI bounding boxes from mask"""
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    rois = []
-    for c in contours:
-        x, y, w, h = cv2.boundingRect(c)
-        area = w * h
-        if area >= min_area:
-            rois.append((x, y, w, h))
-    rois.sort(key=lambda b: b[2] * b[3], reverse=True)
-    return rois
 
-def predict_defect(model, image_crop, classes, device):
-    """Predict defect class for a single ROI"""
-    with torch.no_grad():
-        # Convert BGR to RGB
-        image_rgb = cv2.cvtColor(image_crop, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(image_rgb)
-        
-        # Preprocess
-        input_tensor = preprocess_image(pil_image).to(device)
-        
-        # Predict
-        outputs = model(input_tensor)
-        probs = torch.softmax(outputs, dim=1)
-        confidence, pred_idx = torch.max(probs, 1)
-        
-        pred_class = classes[pred_idx.item()]
-        confidence_score = confidence.item()
-        
-        return pred_class, confidence_score
+# ---------------- PDF GENERATION ----------------
+def draw_page_border(cnv, doc):
+    cnv.saveState()
+    cnv.setStrokeColor(colors.black)  # black border per request
+    cnv.setLineWidth(2)
+    cnv.rect(20, 20, doc.pagesize[0] - 40, doc.pagesize[1] - 40)
+    cnv.restoreState()
 
-def annotate_image(image, rois, predictions):
-    """Annotate image with predictions"""
-    annotated = image.copy()
+
+def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plot_path=None,
+                        annotated_paths=None):
+    """
+    Professional report:
+    - Two-column overview images (side-by-side)
+    - Headings in blue, border black
+    - Saves and returns the path to the generated PDF
+    """
+    file_path = f"outputs/report_{session_id}.pdf"
+    os.makedirs("outputs", exist_ok=True)
+
+    doc = SimpleDocTemplate(file_path, pagesize=letter,
+                            rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='ReportTitle', fontSize=20, alignment=1, textColor=colors.darkgreen, leading=26))
+    styles.add(ParagraphStyle(name='ReportSub', fontSize=11, alignment=1, textColor=colors.gray))
+    styles.add(ParagraphStyle(name='HeadingBlue', fontSize=13, alignment=0, textColor=colors.blue, leading=16))
+    normal = styles['Normal']
+
+    elements = []
+
+    # Cover: optional logo/banner
+    logo_path = "outputs/logo.png"
+    if os.path.exists(logo_path):
+        try:
+            elements.append(RLImage(logo_path, width=6.6 * inch, height=1.0 * inch))
+            elements.append(Spacer(1, 8))
+        except Exception:
+            pass
+
+    # Title & meta
+    elements.append(Paragraph("<b>PCB DEFECT DETECTION REPORT</b>", styles['ReportTitle']))
+    elements.append(Paragraph("AI-Powered Quality Inspection using EfficientNet-B4", styles['ReportSub']))
+    elements.append(Spacer(1, 8))
+
+    info_html = (
+        f"<b>Report ID:</b> {session_id} &nbsp;&nbsp;&nbsp; "
+        f"<b>Generated On:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br/>"
+        f"<b>Model Used:</b> EfficientNet-B4 &nbsp;&nbsp;&nbsp; "
+        f"<b>Total Defects Detected:</b> {len(predictions)}"
+    )
+    elements.append(Paragraph(info_html, normal))
+    elements.append(Spacer(1, 12))
+
+    # Overview heading
+    elements.append(Paragraph("<b>Overview Images</b>", styles['HeadingBlue']))
+    elements.append(Spacer(1, 6))
+
+    # Prepare overview images (only existing ones)
+    overview_items = []
+    raw_img_paths = [
+        ("Template Image", f"outputs/template_{session_id}.png"),
+        ("Test Image", f"outputs/test_{session_id}.png"),
+        ("Difference Image", f"outputs/diff_{session_id}.png"),
+        ("Binary Mask", f"outputs/mask_{session_id}.png"),
+        ("Bar Plot - Defect Count", bar_plot_path),
+        ("Scatter Plot - Defect Positions", scatter_plot_path),
+    ]
+    for title, p in raw_img_paths:
+        if p and os.path.exists(p):
+            # nested table for each cell: title + image (keeps title above)
+            try:
+                img = RLImage(p, width=3.0 * inch, height=2.0 * inch)  # compact size for side-by-side
+                nested = Table([[Paragraph(f"<b>{title}</b>", styles['HeadingBlue'])],
+                                [img]], colWidths=[3.0 * inch])
+                nested.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                overview_items.append(nested)
+            except Exception:
+                # fallback: skip problematic images
+                pass
+
+    # Build rows of two columns
+    if overview_items:
+        rows = []
+        for i in range(0, len(overview_items), 2):
+            left = overview_items[i]
+            right = overview_items[i + 1] if i + 1 < len(overview_items) else ''
+            rows.append([left, right])
+        table_overview = Table(rows, colWidths=[3.15 * inch, 3.15 * inch], hAlign='CENTER')
+        table_overview.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(table_overview)
+    elements.append(PageBreak())
+
+    # --- Detected defects summary (each defect as own table, green header kept) ---
+    elements.append(Paragraph("<b>Detected Defects Summary</b>", styles['HeadingBlue']))
+    elements.append(Spacer(1, 8))
+    if predictions:
+        for i, p in enumerate(predictions, start=1):
+            bx, by, bw, bh = p['bbox']
+            defect_data = [
+                ["Property", "Value"],
+                ["Defect ID", f"{i}"],
+                ["Class", p["class"]],
+                ["Confidence", f"{p['confidence']:.2f}"],
+                ["Position (x, y)", f"({bx}, {by})"],
+                ["Size (w × h)", f"{bw} × {bh}"],
+            ]
+            # Use nicer column widths to reduce empty space
+            table = Table(defect_data, colWidths=[1.8 * inch, 4.4 * inch])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.green),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+                ('GRID', (0, 0), (-1, -1), 0.4, colors.darkgreen),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey]),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(table)
+            elements.append(Spacer(1, 8))
+    else:
+        elements.append(Paragraph("No defects detected.", normal))
     
-    # Draw predictions in red
-    for (x, y, w, h), (pred_class, confidence) in zip(rois, predictions):
-        cv2.rectangle(annotated, (x, y), (x+w, y+h), (0, 0, 255), 2)
-        cv2.putText(annotated, f"{pred_class} ({confidence:.2f})", 
-                   (x, min(annotated.shape[0]-2, y+h+16)), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-    
-    return annotated
 
-def image_to_base64(image):
-    """Convert OpenCV image to base64 string"""
-    _, buffer = cv2.imencode('.jpg', image)
-    img_str = base64.b64encode(buffer).decode()
-    return f"data:image/jpeg;base64,{img_str}"
+   # Move directly to annotated results (no PageBreak)
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph("<b>Annotated Results</b>", styles['HeadingBlue']))
+    elements.append(Spacer(1, 6))
+    if annotated_paths:
+        for img in annotated_paths:
+            if os.path.exists(img):
+                try:
+                    elements.append(RLImage(img, width=6.8 * inch, height=4.8 * inch))
+                    elements.append(Spacer(1, 8))
+                except Exception:
+                    pass
+    else:
+        elements.append(Paragraph("No annotated image available.", normal))
 
+    # Summary & conclusion
+    elements.append(Paragraph("<b>Summary</b>", styles['HeadingBlue']))
+    elements.append(Spacer(1, 6))
+    total = len(predictions)
+    high_conf = sum(1 for p in predictions if p['confidence'] > 0.8)
+    summary_text = (
+        f"Out of <b>{total}</b> detected defects, <b>{high_conf}</b> were high-confidence "
+        f"(confidence > 0.8). The inspection identified potential PCB defects (open circuits, shorts, "
+        f"missing components)."
+    )
+    elements.append(Paragraph(summary_text, normal))
+    elements.append(Spacer(1, 8))
+    elements.append(Paragraph("<b>Conclusion</b>", styles['HeadingBlue']))
+    elements.append(Spacer(1, 6))
+    conclusion_text = (
+        "This AI-powered PCB defect detection system (EfficientNet-B4) demonstrates strong performance "
+        "for automated visual inspection. Integrating real-time detection and adaptive thresholding "
+        "would be recommended for production deployments."
+    )
+    elements.append(Paragraph(conclusion_text, normal))
+
+    # Build the PDF with black border
+    doc.build(elements, onFirstPage=draw_page_border, onLaterPages=draw_page_border)
+    return file_path
+
+
+# ---------------- ROUTES ----------------
 @app.route('/')
 def index():
-    """Main page"""
     return render_template('index.html')
+
 
 @app.route('/detect', methods=['POST'])
 def detect_defects():
-    """API endpoint for defect detection"""
     try:
         start_time = time.time()
-        
         if model is None:
-            return jsonify({'error': 'Model not loaded'}), 500
-            
-        # Get parameters
+            return jsonify({'success': False, 'error': 'Model not loaded'})
+
         thresh = int(request.form.get('thresh', 30))
         min_area = int(request.form.get('min_area', 50))
         conf_thresh = float(request.form.get('conf_thresh', 0.6))
-        
-        # Get uploaded files
-        template_file = request.files['template']
-        test_file = request.files['test']
-        
+
+        template_file = request.files.get('template')
+        test_file = request.files.get('test')
         if not template_file or not test_file:
-            return jsonify({'error': 'Both template and test images required'}), 400
-        
-        # Read images
-        template_bytes = template_file.read()
-        test_bytes = test_file.read()
-        
-        template_np = np.frombuffer(template_bytes, np.uint8)
-        test_np = np.frombuffer(test_bytes, np.uint8)
-        
-        template_img = cv2.imdecode(template_np, cv2.IMREAD_COLOR)
-        test_img = cv2.imdecode(test_np, cv2.IMREAD_COLOR)
-        
+            return jsonify({'success': False, 'error': 'Both template and test images required'})
+
+        template_img = cv2.imdecode(np.frombuffer(template_file.read(), np.uint8), cv2.IMREAD_COLOR)
+        test_img = cv2.imdecode(np.frombuffer(test_file.read(), np.uint8), cv2.IMREAD_COLOR)
         if template_img is None or test_img is None:
-            return jsonify({'error': 'Invalid image format'}), 400
-        
-        # Preprocessing
-        template_gray = preprocess_gray(to_gray(template_img))
-        test_gray = preprocess_gray(to_gray(test_img))
-        
-        # Difference and mask
-        diff = absdiff_norm(template_gray, test_gray)
-        mask = mask_from_diff(diff, thresh)
-        
-        # Extract ROIs
-        rois = extract_rois(mask, min_area)
-        
-        if len(rois) == 0:
-            return jsonify({
-                'success': True,
-                'defects_found': 0,
-                'message': 'No defects detected. Try adjusting parameters.',
-                'images': {
-                    'template': image_to_base64(template_img),
-                    'test': image_to_base64(test_img),
-                    'diff': image_to_base64(diff),
-                    'mask': image_to_base64(mask)
-                }
-            })
-        
-        # Predict defects
+            return jsonify({'success': False, 'error': 'Invalid image format'})
+
+        # difference mask
+        diff = cv2.absdiff(cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY),
+                           cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY))
+        mask = mask_from_diff(diff, thresh=thresh)
+        mask = cv2.bitwise_and(mask, mask)
+
+        # contours -> rois (explicit loop, robust)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        rois = []
+        for c in contours:
+            x, y, w, h = cv2.boundingRect(c)
+            if w * h >= min_area:
+                rois.append((x, y, w, h))
+
+        # Predictions on ROIs
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         predictions = []
-        high_conf_predictions = []
-        
-        for x, y, w, h in rois:
-            crop = test_img[y:y+h, x:x+w]
+        for (x, y, w, h) in rois:
+            crop = test_img[y:y + h, x:x + w]
             if crop.size == 0:
                 continue
-                
-            pred_class, confidence = predict_defect(model, crop, classes, device)
-            predictions.append((pred_class, confidence))
-            
-            if confidence >= conf_thresh:
-                high_conf_predictions.append({
-                    'bbox': [x, y, w, h],
-                    'class': pred_class,
-                    'confidence': confidence
-                })
-        
-        # Annotate image
-        annotated_img = annotate_image(test_img, rois, predictions)
-        
-        # Calculate processing time
-        processing_time = time.time() - start_time
-        
-        # Store results for download
+            with torch.no_grad():
+                image_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                pil = Image.fromarray(image_rgb)
+                inp = preprocess_image(pil).to(device)
+                outputs = model(inp)
+                probs = torch.softmax(outputs, dim=1)
+                conf, idx = torch.max(probs, 1)
+                pred_class = classes[idx.item()] if classes else str(idx.item())
+                if conf.item() >= conf_thresh:
+                    predictions.append({
+                        'class': pred_class,
+                        'confidence': float(conf.item()),
+                        'bbox': (int(x), int(y), int(w), int(h))
+                    })
+
+        # Annotate test image
+        annotated = test_img.copy()
+        for p in predictions:
+            x, y, w, h = p['bbox']
+            cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            cv2.putText(annotated, f"{p['class']} ({p['confidence']:.2f})", (x, max(10, y - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
         session_id = str(int(time.time()))
-        results = {
-            'session_id': session_id,
-            'timestamp': datetime.now().isoformat(),
-            'defects': high_conf_predictions,
-            'processing_time': processing_time,
-            'annotated_image': image_to_base64(annotated_img)
+
+        # Save all intermediate images (for embedding in PDF)
+        cv2.imwrite(f"outputs/template_{session_id}.png", template_img)
+        cv2.imwrite(f"outputs/test_{session_id}.png", test_img)
+        # diff is grayscale -> save as PNG (reportlab can read)
+        cv2.imwrite(f"outputs/diff_{session_id}.png", diff)
+        cv2.imwrite(f"outputs/mask_{session_id}.png", mask)
+        annotated_path = f"outputs/annotated_{session_id}.png"
+        cv2.imwrite(annotated_path, annotated)
+
+        # Save JSON results for CSV download
+        results_json = {
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "session_id": session_id,
+            "predictions": predictions
         }
-        
-        # Save results to temporary file
-        results_file = f"temp_results_{session_id}.json"
-        with open(results_file, 'w') as f:
-            json.dump(results, f)
-        
+        json_path = f"outputs/results_{session_id}.json"
+        with open(json_path, 'w') as jf:
+            json.dump(results_json, jf, indent=2)
+
+        # Create plots (bar + scatter)
+        class_counts = {}
+        for p in predictions:
+            class_counts[p['class']] = class_counts.get(p['class'], 0) + 1
+
+        fig1, ax1 = plt.subplots(figsize=(6, 4))
+        if class_counts:
+            ax1.bar(list(class_counts.keys()), list(class_counts.values()), color='lightgreen')
+            ax1.set_title("Defect Count per Class")
+            ax1.set_ylabel("Count")
+        else:
+            ax1.text(0.5, 0.5, "No defects detected", ha='center', va='center', fontsize=12)
+            ax1.axis('off')
+        bar_plot_path = f"outputs/bar_plot_{session_id}.png"
+        fig1.savefig(bar_plot_path, bbox_inches='tight')
+        bar_plot_b64 = create_plot_base64_from_fig(fig1)
+        plt.close(fig1)
+
+        fig2, ax2 = plt.subplots(figsize=(6, 4))
+        if predictions:
+            xs, ys, labels = [], [], []
+            for p in predictions:
+                x, y, w, h = p['bbox']
+                xs.append(x + w / 2)
+                ys.append(y + h / 2)
+                labels.append(p['class'])
+            ax2.scatter(xs, ys, c='green')
+            for i, lbl in enumerate(labels):
+                ax2.annotate(lbl, (xs[i], ys[i]), textcoords="offset points", xytext=(3, 3), fontsize=8)
+            ax2.set_title("Defect Position Scatter Plot")
+            ax2.set_xlabel("X Position")
+            ax2.set_ylabel("Y Position")
+            ax2.invert_yaxis()
+        else:
+            ax2.text(0.5, 0.5, "No defects detected", ha='center', va='center', fontsize=12)
+            ax2.axis('off')
+        scatter_plot_path = f"outputs/scatter_plot_{session_id}.png"
+        fig2.savefig(scatter_plot_path, bbox_inches='tight')
+        scatter_plot_b64 = create_plot_base64_from_fig(fig2)
+        plt.close(fig2)
+
+        # Generate PDF report (reads the saved image files)
+        report_path = generate_pdf_report(
+            session_id, predictions, bar_plot_path, scatter_plot_path, [annotated_path])
+
+        processing_time = time.time() - start_time
         return jsonify({
             'success': True,
-            'defects_found': len(rois),
-            'high_confidence': len(high_conf_predictions),
-            'predictions': high_conf_predictions,
             'session_id': session_id,
+            'processing_time': processing_time,
             'images': {
                 'template': image_to_base64(template_img),
                 'test': image_to_base64(test_img),
                 'diff': image_to_base64(diff),
                 'mask': image_to_base64(mask),
-                'annotated': image_to_base64(annotated_img)
-            }
+                'annotated': image_to_base64(annotated),
+            },
+            'bar_plot': bar_plot_b64,
+            'scatter_plot': scatter_plot_b64,
+            'predictions': predictions,
+            'defects_found': len(predictions),
+            'high_confidence': sum(1 for p in predictions if p['confidence'] > 0.8)
         })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# Download generated PDF
+@app.route('/download_report/<session_id>')
+def download_report(session_id):
+    path = f"outputs/report_{session_id}.pdf"
+    if not os.path.exists(path):
+        return "Report not found", 404
+    return send_file(path, as_attachment=True)
+
+
+# Download annotated image
 @app.route('/download_image/<session_id>')
 def download_image(session_id):
-    """Download annotated image"""
-    try:
-        results_file = f"temp_results_{session_id}.json"
-        if not os.path.exists(results_file):
-            return jsonify({'error': 'Results not found'}), 404
-            
-        with open(results_file, 'r') as f:
-            results = json.load(f)
-        
-        # Decode base64 image
-        img_data = base64.b64decode(results['annotated_image'].split(',')[1])
-        
-        # Create response
-        response = make_response(img_data)
-        response.headers['Content-Type'] = 'image/jpeg'
-        response.headers['Content-Disposition'] = f'attachment; filename=annotated_result_{session_id}.jpg'
-        
-        return response
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    path = f"outputs/annotated_{session_id}.png"
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
+    return "Image not found", 404
 
+
+# Download CSV log (generated from JSON saved at detection time)
 @app.route('/download_log/<session_id>')
 def download_log(session_id):
-    """Download CSV log of predictions"""
-    try:
-        results_file = f"temp_results_{session_id}.json"
-        if not os.path.exists(results_file):
-            return jsonify({'error': 'Results not found'}), 404
-            
-        with open(results_file, 'r') as f:
-            results = json.load(f)
-        
-        # Create CSV content
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        # Write header
-        writer.writerow(['Timestamp', 'Session ID', 'Defect ID', 'Class', 'Confidence', 'Bounding Box (x1,y1,x2,y2)'])
-        
-        # Write defect data
-        for i, defect in enumerate(results['defects']):
-            writer.writerow([
-                results['timestamp'],
-                session_id,
-                i + 1,
-                defect['class'],
-                f"{defect['confidence']:.4f}",
-                f"({defect['bbox'][0]},{defect['bbox'][1]},{defect['bbox'][2]},{defect['bbox'][3]})"
-            ])
-        
-        # Create response
-        csv_data = output.getvalue()
-        response = make_response(csv_data)
-        response.headers['Content-Type'] = 'text/csv'
-        response.headers['Content-Disposition'] = f'attachment; filename=prediction_log_{session_id}.csv'
-        
-        return response
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    json_path = f"outputs/results_{session_id}.json"
+    if not os.path.exists(json_path):
+        return "Log not found", 404
 
-@app.route('/cleanup/<session_id>')
-def cleanup(session_id):
-    """Clean up temporary files"""
     try:
-        results_file = f"temp_results_{session_id}.json"
-        if os.path.exists(results_file):
-            os.remove(results_file)
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        with open(json_path, 'r') as f:
+            results = json.load(f)
+    except Exception:
+        return "Error reading log", 500
+
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Timestamp', 'Session ID', 'Defect ID', 'Class', 'Confidence', 'Bounding Box (x,y,w,h)'])
+    for i, d in enumerate(results.get('predictions', [])):
+        writer.writerow([results.get('timestamp', results.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))),
+                         session_id,
+                         i + 1,
+                         d.get('class', ''),
+                         f"{d.get('confidence', 0):.4f}",
+                         str(d.get('bbox', ''))])
+    csv_data = output.getvalue()
+    output.close()
+    headers = {
+        "Content-Disposition": f"attachment; filename=prediction_log_{session_id}.csv",
+        "Content-Type": "text/csv"
+    }
+    return Response(csv_data, headers=headers)
 
 if __name__ == '__main__':
-    # Create templates directory
-    os.makedirs('templates', exist_ok=True)
-    
-    # Load model
-    if load_model():
-        print("✅ Model loaded successfully!")
-        print(f"Classes: {', '.join(classes)}") # type: ignore
-    else:
-        print("❌ Failed to load model")
-        exit(1)
-    
-    print("🚀 Starting PCB Defect Detection Web App...")
-    print("📱 Open your browser and go to: http://localhost:5000")
     app.run(debug=True, host='0.0.0.0', port=5000)
