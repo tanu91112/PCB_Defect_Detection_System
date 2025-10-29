@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,7 +24,7 @@
             margin: 0 auto;
             background: white;
             border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             overflow: hidden;
         }
 
@@ -191,7 +192,7 @@
             background: white;
             border-radius: 10px;
             padding: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
 
@@ -205,7 +206,7 @@
             max-width: 100%;
             height: auto;
             border-radius: 8px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
         }
 
         .download-buttons {
@@ -241,7 +242,7 @@
             background: white;
             border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
 
         .predictions-table table {
@@ -296,8 +297,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .error {
@@ -322,17 +328,18 @@
             .upload-section {
                 grid-template-columns: 1fr;
             }
-            
+
             .control-group {
                 grid-template-columns: 1fr;
             }
-            
+
             .image-grid {
                 grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -395,10 +402,28 @@
 
                 <div id="results-content" style="display: none;">
                     <div class="results-header" id="results-header"></div>
-                    
+
                     <div class="image-grid" id="image-grid"></div>
-                    
+
+                    <!-- New: Plots Section -->
+                    <div class="image-grid" id="plots-section">
+                        <div class="image-card">
+                            <h4>📊 Defect Count Bar Plot</h4>
+                            <img id="bar-plot" src="" alt="Bar Plot">
+                        </div>
+                        <div class="image-card">
+                            <h4>🟣 Defect Scatter Plot</h4>
+                            <img id="scatter-plot" src="" alt="Scatter Plot">
+                        </div>
+                    </div>
+
                     <div class="predictions-table" id="predictions-table"></div>
+
+                    <!-- New: Download PDF -->
+                    <div style="text-align: center; margin-top: 20px;">
+                        <button class="download-btn" id="pdf-btn">📄 Download PDF Report</button>
+                    </div>
+
                 </div>
             </div>
         </div>
@@ -406,11 +431,11 @@
 
     <script>
         // File upload handling
-        document.getElementById('template-input').addEventListener('change', function(e) {
+        document.getElementById('template-input').addEventListener('change', function (e) {
             handleFileSelect(e, 'template-preview');
         });
 
-        document.getElementById('test-input').addEventListener('change', function(e) {
+        document.getElementById('test-input').addEventListener('change', function (e) {
             handleFileSelect(e, 'test-preview');
         });
 
@@ -418,7 +443,7 @@
             const file = event.target.files[0];
             if (file) {
                 const reader = new FileReader();
-                reader.onload = function(e) {
+                reader.onload = function (e) {
                     const preview = document.getElementById(previewId);
                     preview.innerHTML = `<img src="${e.target.result}" style="max-width: 200px; margin-top: 10px; border-radius: 8px;">`;
                 };
@@ -427,15 +452,15 @@
         }
 
         // Range slider updates
-        document.getElementById('thresh').addEventListener('input', function() {
+        document.getElementById('thresh').addEventListener('input', function () {
             document.getElementById('thresh-value').textContent = this.value;
         });
 
-        document.getElementById('min_area').addEventListener('input', function() {
+        document.getElementById('min_area').addEventListener('input', function () {
             document.getElementById('min_area-value').textContent = this.value;
         });
 
-        document.getElementById('conf_thresh').addEventListener('input', function() {
+        document.getElementById('conf_thresh').addEventListener('input', function () {
             document.getElementById('conf_thresh-value').textContent = this.value;
         });
 
@@ -445,24 +470,24 @@
             const input = box.querySelector('input[type="file"]');
             const preview = box.querySelector('div[id$="-preview"]');
 
-            box.addEventListener('dragover', function(e) {
+            box.addEventListener('dragover', function (e) {
                 e.preventDefault();
                 box.classList.add('dragover');
             });
 
-            box.addEventListener('dragleave', function(e) {
+            box.addEventListener('dragleave', function (e) {
                 e.preventDefault();
                 box.classList.remove('dragover');
             });
 
-            box.addEventListener('drop', function(e) {
+            box.addEventListener('drop', function (e) {
                 e.preventDefault();
                 box.classList.remove('dragover');
-                
+
                 const files = e.dataTransfer.files;
                 if (files.length > 0) {
                     input.files = files;
-                    handleFileSelect({target: {files: files}}, preview.id);
+                    handleFileSelect({ target: { files: files } }, preview.id);
                 }
             });
         });
@@ -581,7 +606,7 @@
                 result.predictions.forEach((pred, index) => {
                     const [x, y, w, h] = pred.bbox;
                     const confidencePercent = (pred.confidence * 100).toFixed(1);
-                    
+
                     tableHTML += `
                         <tr>
                             <td>${index + 1}</td>
@@ -605,6 +630,16 @@
             }
 
             resultsContent.style.display = 'block';
+
+            // Show plots
+            document.getElementById('bar-plot').src = result.bar_plot;
+            document.getElementById('scatter-plot').src = result.scatter_plot;
+
+            // PDF Download
+            document.getElementById('pdf-btn').onclick = () => {
+                window.open(`/download_report/${result.session_id}`, '_blank');
+            };
+
         }
 
         function showError(message) {
@@ -627,4 +662,5 @@
         }
     </script>
 </body>
+
 </html>
