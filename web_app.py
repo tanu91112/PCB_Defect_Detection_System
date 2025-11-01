@@ -113,7 +113,9 @@ def draw_page_border(cnv, doc):
 
 
 def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plot_path=None,
-                        annotated_paths=None):
+                        annotated_paths=None, pie_chart_path=None):
+
+
     """
     Professional report:
     - Two-column overview images (side-by-side)
@@ -127,10 +129,11 @@ def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plo
                             rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name='ReportTitle', fontSize=20, alignment=1, textColor=colors.darkgreen, leading=26))
-    styles.add(ParagraphStyle(name='ReportSub', fontSize=11, alignment=1, textColor=colors.gray))
-    styles.add(ParagraphStyle(name='HeadingBlue', fontSize=13, alignment=0, textColor=colors.blue, leading=16))
+    styles.add(ParagraphStyle(name='ReportTitle', fontSize=20, alignment=1, textColor=colors.HexColor('#B22222'), leading=26))  # dark red
+    styles.add(ParagraphStyle(name='ReportSub', fontSize=11, alignment=1, textColor=colors.HexColor('#2F4F4F')))  # dark slate gray
+    styles.add(ParagraphStyle(name='HeadingBlue', fontSize=13, alignment=0, textColor=colors.HexColor('#1E90FF'), leading=16))  # professional blue
     normal = styles['Normal']
+
 
     elements = []
 
@@ -144,9 +147,12 @@ def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plo
             pass
 
     # Title & meta
-    elements.append(Paragraph("<b>PCB DEFECT DETECTION REPORT</b>", styles['ReportTitle']))
+    elements.append(Paragraph("<b>A Generated Report on PCB Defect Detection using AI</b>", styles['ReportTitle']))
+    elements.append(Paragraph("By: Tanu Chandravanshi<br/>VIT Bhopal University<br/>Date: " +
+                          datetime.now().strftime('%d-%m-%Y'), styles['ReportSub']))
+   
     elements.append(Paragraph("AI-Powered Quality Inspection using EfficientNet-B4", styles['ReportSub']))
-    elements.append(Spacer(1, 8))
+    elements.append(Spacer(1, 24))
 
     info_html = (
         f"<b>Report ID:</b> {session_id} &nbsp;&nbsp;&nbsp; "
@@ -170,6 +176,8 @@ def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plo
         ("Binary Mask", f"outputs/mask_{session_id}.png"),
         ("Bar Plot - Defect Count", bar_plot_path),
         ("Scatter Plot - Defect Positions", scatter_plot_path),
+        ("Pie Chart - Class Distribution", pie_chart_path),
+
     ]
     for title, p in raw_img_paths:
         if p and os.path.exists(p):
@@ -202,7 +210,7 @@ def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plo
             ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ]))
         elements.append(table_overview)
-    elements.append(PageBreak())
+
 
     # --- Detected defects summary (each defect as own table, green header kept) ---
     elements.append(Paragraph("<b>Detected Defects Summary</b>", styles['HeadingBlue']))
@@ -307,12 +315,20 @@ def detect_defects():
             return jsonify({'success': False, 'error': 'Invalid image format'})
 
         # difference mask
-        diff = cv2.absdiff(cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY),
-                           cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY))
+        # 🔹 Apply blur to highlight minor defects before difference
+        template_blur = cv2.GaussianBlur(template_img, (5, 5), 0)
+        test_blur = cv2.GaussianBlur(test_img, (5, 5), 0)
+
+        # 🔹 Compute difference on blurred images
+        diff = cv2.absdiff(cv2.cvtColor(test_blur, cv2.COLOR_BGR2GRAY),
+                   cv2.cvtColor(template_blur, cv2.COLOR_BGR2GRAY))
+
         mask = mask_from_diff(diff, thresh=thresh)
+
+        
         mask = cv2.bitwise_and(mask, mask)
 
-        # contours -> rois (explicit loop, robust)
+        # contours -> rois
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         rois = []
         for c in contours:
@@ -347,21 +363,21 @@ def detect_defects():
         for p in predictions:
             x, y, w, h = p['bbox']
             cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 0, 255), 2)
-            cv2.putText(annotated, f"{p['class']} ({p['confidence']:.2f})", (x, max(10, y - 6)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            cv2.putText(annotated, f"{p['class']} ({p['confidence']:.2f})",
+                        (x, max(10, y - 6)), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 0, 255), 1)
 
         session_id = str(int(time.time()))
 
-        # Save all intermediate images (for embedding in PDF)
+        # Save intermediate images
         cv2.imwrite(f"outputs/template_{session_id}.png", template_img)
         cv2.imwrite(f"outputs/test_{session_id}.png", test_img)
-        # diff is grayscale -> save as PNG (reportlab can read)
         cv2.imwrite(f"outputs/diff_{session_id}.png", diff)
         cv2.imwrite(f"outputs/mask_{session_id}.png", mask)
         annotated_path = f"outputs/annotated_{session_id}.png"
         cv2.imwrite(annotated_path, annotated)
 
-        # Save JSON results for CSV download
+        # Save JSON results
         results_json = {
             "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "session_id": session_id,
@@ -371,11 +387,40 @@ def detect_defects():
         with open(json_path, 'w') as jf:
             json.dump(results_json, jf, indent=2)
 
-        # Create plots (bar + scatter)
+        # Class counts
         class_counts = {}
         for p in predictions:
             class_counts[p['class']] = class_counts.get(p['class'], 0) + 1
 
+        # --- PIE CHART ---
+        fig3, ax3 = plt.subplots(figsize=(6, 4))
+        if class_counts:
+            labels = list(class_counts.keys())
+            sizes = list(class_counts.values())
+            colors_list = plt.cm.get_cmap('Paired')(np.linspace(0, 1, len(labels)))
+            colors_list = list(colors_list)
+
+
+            pie_result = ax3.pie(
+                sizes, labels=labels, autopct='%1.1f%%',
+                startangle=140, colors=colors_list,
+                textprops={'fontsize': 8}
+            )
+
+            wedges, texts = pie_result[0], pie_result[1]
+            autotexts = pie_result[2] if len(pie_result) > 2 else []
+            ax3.set_title("Defect Class Distribution (Pie Chart)")
+            ax3.axis('equal')
+        else:
+            ax3.text(0.5, 0.5, "No defects detected", ha='center', va='center', fontsize=12)
+            ax3.axis('off')
+
+        pie_chart_path = f"outputs/pie_chart_{session_id}.png"
+        fig3.savefig(pie_chart_path, bbox_inches='tight')
+        pie_chart_b64 = create_plot_base64_from_fig(fig3)
+        plt.close(fig3)
+
+        # --- BAR CHART ---
         fig1, ax1 = plt.subplots(figsize=(6, 4))
         if class_counts:
             ax1.bar(list(class_counts.keys()), list(class_counts.values()), color='lightgreen')
@@ -389,6 +434,7 @@ def detect_defects():
         bar_plot_b64 = create_plot_base64_from_fig(fig1)
         plt.close(fig1)
 
+        # --- SCATTER PLOT ---
         fig2, ax2 = plt.subplots(figsize=(6, 4))
         if predictions:
             xs, ys, labels = [], [], []
@@ -412,11 +458,18 @@ def detect_defects():
         scatter_plot_b64 = create_plot_base64_from_fig(fig2)
         plt.close(fig2)
 
-        # Generate PDF report (reads the saved image files)
+        # Generate PDF
         report_path = generate_pdf_report(
-            session_id, predictions, bar_plot_path, scatter_plot_path, [annotated_path])
+            session_id, predictions,
+            bar_plot_path, scatter_plot_path,
+            [annotated_path],
+            pie_chart_path=pie_chart_path
+        )
 
         processing_time = time.time() - start_time
+        distribution = {k: int(v) for k, v in class_counts.items()}
+
+        # ✅ Final JSON Response (now includes pie chart + distribution)
         return jsonify({
             'success': True,
             'session_id': session_id,
@@ -430,6 +483,8 @@ def detect_defects():
             },
             'bar_plot': bar_plot_b64,
             'scatter_plot': scatter_plot_b64,
+            'pie_chart': pie_chart_b64,
+            'defect_distribution': distribution,
             'predictions': predictions,
             'defects_found': len(predictions),
             'high_confidence': sum(1 for p in predictions if p['confidence'] > 0.8)
@@ -439,7 +494,8 @@ def detect_defects():
         return jsonify({'success': False, 'error': str(e)})
 
 
-# Download generated PDF
+# ------------------------ DOWNLOAD ROUTES ------------------------
+
 @app.route('/download_report/<session_id>')
 def download_report(session_id):
     path = f"outputs/report_{session_id}.pdf"
@@ -448,7 +504,6 @@ def download_report(session_id):
     return send_file(path, as_attachment=True)
 
 
-# Download annotated image
 @app.route('/download_image/<session_id>')
 def download_image(session_id):
     path = f"outputs/annotated_{session_id}.png"
@@ -457,7 +512,6 @@ def download_image(session_id):
     return "Image not found", 404
 
 
-# Download CSV log (generated from JSON saved at detection time)
 @app.route('/download_log/<session_id>')
 def download_log(session_id):
     json_path = f"outputs/results_{session_id}.json"
@@ -476,12 +530,13 @@ def download_log(session_id):
     writer = csv.writer(output)
     writer.writerow(['Timestamp', 'Session ID', 'Defect ID', 'Class', 'Confidence', 'Bounding Box (x,y,w,h)'])
     for i, d in enumerate(results.get('predictions', [])):
-        writer.writerow([results.get('timestamp', results.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))),
-                         session_id,
-                         i + 1,
-                         d.get('class', ''),
-                         f"{d.get('confidence', 0):.4f}",
-                         str(d.get('bbox', ''))])
+        writer.writerow([
+            results.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+            session_id, i + 1,
+            d.get('class', ''),
+            f"{d.get('confidence', 0):.4f}",
+            str(d.get('bbox', ''))
+        ])
     csv_data = output.getvalue()
     output.close()
     headers = {
@@ -490,5 +545,7 @@ def download_log(session_id):
     }
     return Response(csv_data, headers=headers)
 
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000) #venv\Scripts\python.exe web_app.py
+ 
