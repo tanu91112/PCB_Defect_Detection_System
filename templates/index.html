@@ -296,6 +296,8 @@
             margin: 0 auto 20px;
         }
 
+
+
         @keyframes spin {
             0% {
                 transform: rotate(0deg);
@@ -338,6 +340,8 @@
             }
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 </head>
 
 <body>
@@ -585,6 +589,12 @@
                         </button>
                     </div>
                 </div>
+                <!-- 🥧 NEW PIE CHART CARD -->
+                <div class="image-card" style="flex: 0 0 100%; max-width: 900px; margin: auto;">
+               <h4>🥧 Defect Type Distribution</h4>
+               <canvas id="pieChart" style="width:600px; height:400px;"></canvas>
+
+               </div>
             `;
 
             // Display predictions table
@@ -634,6 +644,37 @@
             // Show plots
             document.getElementById('bar-plot').src = result.bar_plot;
             document.getElementById('scatter-plot').src = result.scatter_plot;
+            // 🥧 Create Pie Chart for defect distribution
+            if (result.defect_distribution) {
+                const labels = Object.keys(result.defect_distribution);
+                const values = Object.values(result.defect_distribution);
+
+                const ctx = document.getElementById('pieChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: values,
+                            backgroundColor: [
+                                '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6f42c1'
+                            ],
+                            borderWidth: 2,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: {
+                        responsive: false,        // ✅ turn off responsiveness
+                        maintainAspectRatio: true, // ✅ allow free resizing
+                        plugins: {
+                            legend: { position: 'bottom' },
+                            title: { display: true, text: 'Defect Type Distribution' }
+                        }
+                    }
+                });
+
+            }
+
 
             // PDF Download
             document.getElementById('pdf-btn').onclick = () => {
