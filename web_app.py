@@ -1,12 +1,33 @@
 #!/usr/bin/env python3
 """
-Web app: PCB defect detection + professional PDF report generator.
-- Side-by-side images in report
-- Black page border, blue headings
-- CSV log download (from JSON saved per session)
+🎯 Goal
+To build a Flask-based AI web application that detects defects in PCB (Printed Circuit Board) images using a deep learning model 
+(EfficientNet-B4) and automatically generates a professional PDF inspection report with visual analytics and downloadable logs.
+
+It’s a complete AI-powered PCB quality inspection system with automated reporting and visualization
+
 """
 
 from flask import Flask, render_template, request, jsonify, send_file, Response
+try:
+    from flask_caching import Cache  # type: ignore
+except ImportError:
+    # Fallback if flask-caching is not available
+    print("Warning: flask-caching not available, using simple dictionary cache")
+    class SimpleCache:
+        def __init__(self):
+            self._cache = {}
+        def get(self, key):
+            return self._cache.get(key)
+        def set(self, key, value, timeout=300):
+            self._cache[key] = value
+    class Cache:
+        def __init__(self, app=None, config=None):
+            self.cache = SimpleCache()
+        def get(self, key):
+            return self.cache.get(key)
+        def set(self, key, value, timeout=300):
+            self.cache.set(key, value, timeout)
 import cv2
 import numpy as np
 import torch
@@ -15,6 +36,7 @@ import os
 import base64
 import json
 import time
+import hashlib
 from torch import nn
 from torchvision import transforms, models
 from pathlib import Path
@@ -34,6 +56,13 @@ from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
 os.makedirs("outputs", exist_ok=True)
+
+# Configure caching
+cache = Cache(app, config={
+    'CACHE_TYPE': 'SimpleCache',
+    'CACHE_DEFAULT_TIMEOUT': 300,  # 5 minutes
+    'CACHE_THRESHOLD': 100  # Maximum number of items to store
+})
 
 # Constants
 MEAN = [0.485, 0.456, 0.406]
@@ -73,6 +102,10 @@ load_model()
 
 
 # ---------------- HELPERS ----------------
+def create_image_hash(image_data):
+    """Create a hash of image data for caching"""
+    return hashlib.md5(image_data).hexdigest()
+
 def preprocess_image(image, img_size=128):
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -129,10 +162,42 @@ def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plo
                             rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name='ReportTitle', fontSize=20, alignment=1, textColor=colors.HexColor('#B22222'), leading=26))  # dark red
-    styles.add(ParagraphStyle(name='ReportSub', fontSize=11, alignment=1, textColor=colors.HexColor('#2F4F4F')))  # dark slate gray
-    styles.add(ParagraphStyle(name='HeadingBlue', fontSize=13, alignment=0, textColor=colors.HexColor('#1E90FF'), leading=16))  # professional blue
-    normal = styles['Normal']
+    styles = getSampleStyleSheet()
+
+    styles.add(ParagraphStyle(
+    name='ReportTitle',
+    fontName='Helvetica-Bold',
+    fontSize=22,
+    alignment=1,
+    textColor=colors.HexColor('#1A237E'),
+    leading=28
+))
+
+    styles.add(ParagraphStyle(
+    name='ReportSub',
+    fontName='Helvetica',
+    fontSize=11,
+    alignment=1,
+    textColor=colors.HexColor('#37474F'),
+))
+
+    styles.add(ParagraphStyle(
+    name='HeadingBlue',
+    fontName='Helvetica-Bold',
+    fontSize=14,
+    alignment=0,
+    textColor=colors.HexColor('#0D47A1'),
+    leading=18
+))
+
+    styles.add(ParagraphStyle(
+    name='NormalText',
+    fontName='Helvetica',
+    fontSize=10,
+    leading=14
+))
+
+    normal = styles['NormalText']
 
 
     elements = []
@@ -319,8 +384,24 @@ def detect_defects():
         if not template_file or not test_file:
             return jsonify({'success': False, 'error': 'Both template and test images required'})
 
-        template_img = cv2.imdecode(np.frombuffer(template_file.read(), np.uint8), cv2.IMREAD_COLOR)
-        test_img = cv2.imdecode(np.frombuffer(test_file.read(), np.uint8), cv2.IMREAD_COLOR)
+        # Read image data for hashing
+        template_data = template_file.read()
+        test_data = test_file.read()
+        
+        # Create cache key based on image hashes and parameters
+        template_hash = create_image_hash(template_data)
+        test_hash = create_image_hash(test_data)
+        cache_key = f"prediction_{template_hash}_{test_hash}_{thresh}_{min_area}_{conf_thresh}"
+        
+        # Check cache first
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            print(f"🎯 Cache hit for key: {cache_key}")
+            return jsonify(cached_result)
+
+        # Decode images
+        template_img = cv2.imdecode(np.frombuffer(template_data, np.uint8), cv2.IMREAD_COLOR)
+        test_img = cv2.imdecode(np.frombuffer(test_data, np.uint8), cv2.IMREAD_COLOR)
         if template_img is None or test_img is None:
             return jsonify({'success': False, 'error': 'Invalid image format'})
 
@@ -479,26 +560,51 @@ def detect_defects():
         processing_time = time.time() - start_time
         distribution = {k: int(v) for k, v in class_counts.items()}
 
-        # ✅ Final JSON Response (now includes pie chart + distribution)
-        return jsonify({
-            'success': True,
-            'session_id': session_id,
-            'processing_time': processing_time,
-            'images': {
-                'template': image_to_base64(template_img),
-                'test': image_to_base64(test_img),
-                'diff': image_to_base64(diff),
-                'mask': image_to_base64(mask),
-                'annotated': image_to_base64(annotated),
-            },
-            'bar_plot': bar_plot_b64,
-            'scatter_plot': scatter_plot_b64,
-            'pie_chart': pie_chart_b64,
-            'defect_distribution': distribution,
-            'predictions': predictions,
-            'defects_found': len(predictions),
-            'high_confidence': sum(1 for p in predictions if p['confidence'] > 0.8)
-        })
+        # Calculate overall accuracy based on confidence scores
+        overall_accuracy = 0.0
+        if predictions:
+            confidences = [p['confidence'] for p in predictions]
+            overall_accuracy = sum(confidences) / len(confidences) * 100
+
+        # Prepare response with image URLs for individual download
+        response_data = {
+        'success': True,
+        'session_id': session_id,
+        'processing_time': processing_time,
+        'images': {
+            'template': image_to_base64(template_img),
+            'test': image_to_base64(test_img),
+            'diff': image_to_base64(diff),
+            'mask': image_to_base64(mask),
+            'annotated': image_to_base64(annotated),
+        },
+        'image_urls': {
+            'template_url': f'/download_image/{session_id}/template',
+            'test_url': f'/download_image/{session_id}/test', 
+            'diff_url': f'/download_image/{session_id}/diff',
+            'mask_url': f'/download_image/{session_id}/mask',
+            'annotated_url': f'/download_image/{session_id}/annotated'
+        },
+        'plot_urls': {
+            'bar_url': f'/download_plot/{session_id}/bar',
+            'scatter_url': f'/download_plot/{session_id}/scatter',
+            'pie_url': f'/download_plot/{session_id}/pie'
+        },
+        'bar_plot': bar_plot_b64,
+        'scatter_plot': scatter_plot_b64,
+        'pie_chart': pie_chart_b64,
+        'defect_distribution': distribution,
+        'predictions': predictions,
+        'defects_found': len(predictions),
+        'high_confidence': sum(1 for p in predictions if p['confidence'] > 0.8),
+        'accuracy': overall_accuracy
+        }
+        
+        # Cache the result for 5 minutes
+        cache.set(cache_key, response_data)
+        print(f"💾 Cached result with key: {cache_key}")
+        
+        return jsonify(response_data)
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -516,10 +622,63 @@ def download_report(session_id):
 
 @app.route('/download_image/<session_id>')
 def download_image(session_id):
+    """Download annotated image (backward compatibility)"""
     path = f"outputs/annotated_{session_id}.png"
     if os.path.exists(path):
-        return send_file(path, as_attachment=True)
+        return send_file(path, as_attachment=True, download_name=f"annotated_image_{session_id}.png")
     return "Image not found", 404
+
+@app.route('/download_image/<session_id>/<image_type>')
+def download_specific_image(session_id, image_type):
+    """Download specific image type with proper filename"""
+    filename_map = {
+        'template': f'template_{session_id}.png',
+        'test': f'test_{session_id}.png', 
+        'diff': f'diff_{session_id}.png',
+        'mask': f'mask_{session_id}.png',
+        'annotated': f'annotated_{session_id}.png'
+    }
+    
+    # Friendly .jpg filenames per requirement
+    download_name_map = {
+        'template': 'original_image.jpg',
+        'test': 'processed_image.jpg',
+        'diff': 'difference_image.jpg', 
+        'mask': 'mask_image.jpg',
+        'annotated': 'predicted_image.jpg'
+    }
+    
+    if image_type not in filename_map:
+        return "Invalid image type", 404
+        
+    path = f"outputs/{filename_map[image_type]}"
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True, download_name=download_name_map[image_type])
+    return "Image not found", 404
+
+
+@app.route('/download_plot/<session_id>/<plot_type>')
+def download_plot(session_id, plot_type):
+    """Download saved plots (bar, scatter, pie) with friendly filenames"""
+    plot_filename_map = {
+        'bar': f'bar_plot_{session_id}.png',
+        'scatter': f'scatter_plot_{session_id}.png',
+        'pie': f'pie_chart_{session_id}.png'
+    }
+
+    plot_download_name_map = {
+        'bar': 'defect_count_bar_plot.jpg',
+        'scatter': 'defect_scatter_plot.jpg',
+        'pie': 'defect_distribution_pie_chart.jpg'
+    }
+
+    if plot_type not in plot_filename_map:
+        return "Invalid plot type", 404
+
+    path = f"outputs/{plot_filename_map[plot_type]}"
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True, download_name=plot_download_name_map[plot_type])
+    return "Plot not found", 404
 
 
 @app.route('/download_log/<session_id>')
