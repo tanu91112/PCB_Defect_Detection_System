@@ -346,6 +346,10 @@
 
 <body>
     <div class="container">
+        <!-- Toast notification -->
+        <div id="toast" style="position: fixed; top: 20px; right: 20px; background: #28a745; color: #fff; padding: 12px 16px; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: none; z-index: 1000;">
+            ✅ Images uploaded successfully!
+        </div>
         <div class="header">
             <h1>🔍 PCB Defect Detection System</h1>
             <p>Advanced AI-powered defect detection using EfficientNet-B4 | Accuracy: 98.34%</p>
@@ -437,10 +441,12 @@
         // File upload handling
         document.getElementById('template-input').addEventListener('change', function (e) {
             handleFileSelect(e, 'template-preview');
+            maybeShowUploadSuccess();
         });
 
         document.getElementById('test-input').addEventListener('change', function (e) {
             handleFileSelect(e, 'test-preview');
+            maybeShowUploadSuccess();
         });
 
         function handleFileSelect(event, previewId) {
@@ -492,9 +498,27 @@
                 if (files.length > 0) {
                     input.files = files;
                     handleFileSelect({ target: { files: files } }, preview.id);
+                    maybeShowUploadSuccess();
                 }
             });
         });
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = `✅ ${message}`;
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+
+        function maybeShowUploadSuccess() {
+            const templateFile = document.getElementById('template-input').files[0];
+            const testFile = document.getElementById('test-input').files[0];
+            if (templateFile && testFile) {
+                showToast('Images uploaded successfully!');
+            }
+        }
 
         async function detectDefects() {
             const templateFile = document.getElementById('template-input').files[0];
@@ -559,42 +583,53 @@
                 `;
             }
 
-            // Display images
+            // Display images with per-card download buttons
             imageGrid.innerHTML = `
                 <div class="image-card">
                     <h4>📷 Template Image</h4>
                     <img src="${result.images.template}" alt="Template">
+                    <div class="download-buttons">
+                        <button onclick="window.open('${result.image_urls.template_url}', '_blank')" class="download-btn">📥 Download Image</button>
+                    </div>
                 </div>
                 <div class="image-card">
                     <h4>🔍 Test Image</h4>
                     <img src="${result.images.test}" alt="Test">
+                    <div class="download-buttons">
+                        <button onclick="window.open('${result.image_urls.test_url}', '_blank')" class="download-btn">📥 Download Image</button>
+                    </div>
                 </div>
                 <div class="image-card">
                     <h4>📊 Difference Image</h4>
                     <img src="${result.images.diff}" alt="Difference">
+                    <div class="download-buttons">
+                        <button onclick="window.open('${result.image_urls.diff_url}', '_blank')" class="download-btn">📥 Download Image</button>
+                    </div>
                 </div>
                 <div class="image-card">
                     <h4>🎯 Binary Mask</h4>
                     <img src="${result.images.mask}" alt="Mask">
+                    <div class="download-buttons">
+                        <button onclick="window.open('${result.image_urls.mask_url}', '_blank')" class="download-btn">📥 Download Image</button>
+                    </div>
                 </div>
                 <div class="image-card">
                     <h4>🏷️ Annotated Results</h4>
                     <img src="${result.images.annotated}" alt="Annotated">
+                    <p style="margin-top: 8px; color: #37474F;">Accuracy: ${Number(result.accuracy || 0).toFixed(2)}%</p>
                     <div class="download-buttons">
-                        <button onclick="downloadImage('${result.session_id}')" class="download-btn">
-                            📥 Download Annotated Image
-                        </button>
-                        <button onclick="downloadLog('${result.session_id}')" class="download-btn">
-                            📊 Download CSV Log
-                        </button>
+                        <button onclick="window.open('${result.image_urls.annotated_url}', '_blank')" class="download-btn">📥 Download Image</button>
+                        <button onclick="downloadLog('${result.session_id}')" class="download-btn">📊 Download CSV Log</button>
                     </div>
                 </div>
                 <!-- 🥧 NEW PIE CHART CARD -->
                 <div class="image-card" style="flex: 0 0 100%; max-width: 900px; margin: auto;">
-               <h4>🥧 Defect Type Distribution</h4>
-               <canvas id="pieChart" style="width:600px; height:400px;"></canvas>
-
-               </div>
+                    <h4>🥧 Defect Type Distribution</h4>
+                    <canvas id="pieChart" style="width:600px; height:400px;"></canvas>
+                    <div class="download-buttons" style="margin-top: 8px;">
+                        <button onclick="window.open('${result.plot_urls.pie_url}', '_blank')" class="download-btn">📥 Download Pie Chart</button>
+                    </div>
+                </div>
             `;
 
             // Display predictions table
@@ -641,9 +676,29 @@
 
             resultsContent.style.display = 'block';
 
-            // Show plots
+            // Show plots with download buttons
             document.getElementById('bar-plot').src = result.bar_plot;
             document.getElementById('scatter-plot').src = result.scatter_plot;
+            const plotsSection = document.getElementById('plots-section');
+            // Append download buttons if not already present
+            if (!document.getElementById('bar-download-btn')) {
+                const barCard = plotsSection.children[0];
+                const barBtn = document.createElement('button');
+                barBtn.id = 'bar-download-btn';
+                barBtn.className = 'download-btn';
+                barBtn.textContent = '📥 Download Bar Plot';
+                barBtn.onclick = () => window.open(result.plot_urls.bar_url, '_blank');
+                barCard.appendChild(barBtn);
+            }
+            if (!document.getElementById('scatter-download-btn')) {
+                const scatterCard = plotsSection.children[1];
+                const scatterBtn = document.createElement('button');
+                scatterBtn.id = 'scatter-download-btn';
+                scatterBtn.className = 'download-btn';
+                scatterBtn.textContent = '📥 Download Scatter Plot';
+                scatterBtn.onclick = () => window.open(result.plot_urls.scatter_url, '_blank');
+                scatterCard.appendChild(scatterBtn);
+            }
             // 🥧 Create Pie Chart for defect distribution
             if (result.defect_distribution) {
                 const labels = Object.keys(result.defect_distribution);
