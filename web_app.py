@@ -75,7 +75,7 @@ classes = None
 def load_model():
     global model, classes
     try:
-        model_path = "training_outputs/model_best.pth"
+        model_path = "/etc/secrets/model_best.pth"
         classes_path = "training_outputs/classes.json"
         if not Path(model_path).exists() or not Path(classes_path).exists():
             print("Model or classes not found.")
@@ -732,3 +732,4 @@ def download_log(session_id):
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) #venv\Scripts\python.exe web_app.py
  
+
