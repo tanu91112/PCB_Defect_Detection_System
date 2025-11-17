@@ -135,6 +135,18 @@ def mask_from_diff(diff, thresh=30):
     dilated = cv2.dilate(closed, kernel, iterations=1)
     return dilated
 
+def align_affine_ecc(template_gray, test_gray, test_color):
+    h, w = template_gray.shape
+    warp = np.eye(2, 3, dtype=np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-5)
+    try:
+        cv2.findTransformECC(template_gray, test_gray, warp, cv2.MOTION_AFFINE, criteria)
+        aligned_gray = cv2.warpAffine(test_gray, warp, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+        aligned_color = cv2.warpAffine(test_color, warp, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+        return aligned_gray, aligned_color
+    except Exception:
+        return test_gray, test_color
+
 
 # ---------------- PDF GENERATION ----------------
 def draw_page_border(cnv, doc):
@@ -378,6 +390,7 @@ def detect_defects():
         thresh = int(request.form.get('thresh', 30))
         min_area = int(request.form.get('min_area', 50))
         conf_thresh = float(request.form.get('conf_thresh', 0.6))
+        use_alignment = str(request.form.get('align', 'false')).lower() in ('1', 'true', 'yes')
 
         template_file = request.files.get('template')
         test_file = request.files.get('test')
@@ -405,14 +418,15 @@ def detect_defects():
         if template_img is None or test_img is None:
             return jsonify({'success': False, 'error': 'Invalid image format'})
 
-        # difference mask
-        # 🔹 Apply blur to highlight minor defects before difference
         template_blur = cv2.GaussianBlur(template_img, (5, 5), 0)
         test_blur = cv2.GaussianBlur(test_img, (5, 5), 0)
-
-        # 🔹 Compute difference on blurred images
-        diff = cv2.absdiff(cv2.cvtColor(test_blur, cv2.COLOR_BGR2GRAY),
-                   cv2.cvtColor(template_blur, cv2.COLOR_BGR2GRAY))
+        gray_t = cv2.cvtColor(template_blur, cv2.COLOR_BGR2GRAY)
+        gray_s = cv2.cvtColor(test_blur, cv2.COLOR_BGR2GRAY)
+        if use_alignment:
+            gray_s, test_img = align_affine_ecc(gray_t, gray_s, test_img)
+            diff = cv2.absdiff(gray_s, gray_t)
+        else:
+            diff = cv2.absdiff(gray_s, gray_t)
 
         mask = mask_from_diff(diff, thresh=thresh)
 
