@@ -12,3 +12,4 @@ flask-caching
 reportlab
 Werkzeug
 Jinja2
+gunicorn
