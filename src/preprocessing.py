@@ -78,6 +78,18 @@ def preprocess_gray(gray: np.ndarray, blur_ksize: Tuple[int, int] = (5, 5), equa
         g = cv2.equalizeHist(g)
     return g
 
+def align_affine_ecc(template_gray: np.ndarray, test_gray: np.ndarray, test_color: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    h, w = template_gray.shape
+    warp = np.eye(2, 3, dtype=np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-5)
+    try:
+        cv2.findTransformECC(template_gray, test_gray, warp, cv2.MOTION_AFFINE, criteria)
+        aligned_gray = cv2.warpAffine(test_gray, warp, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+        aligned_color = cv2.warpAffine(test_color, warp, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+        return aligned_gray, aligned_color
+    except Exception:
+        return test_gray, test_color
+
 # Absolute difference between template and test
 def subtract_images(template: np.ndarray, test: np.ndarray) -> np.ndarray:
     return cv2.absdiff(test, template)
@@ -131,7 +143,7 @@ def annotate_image(image: np.ndarray, rois: List[Tuple[int, int, int, int]], lab
     return annotated
 
 # Run preprocessing pipeline
-def run_pipeline(template_path: str, test_path: str, out_dir: str, *, thresh: int = 30, min_area: int = 50):
+def run_pipeline(template_path: str, test_path: str, out_dir: str, *, thresh: int = 30, min_area: int = 50, align: bool = False):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -145,6 +157,8 @@ def run_pipeline(template_path: str, test_path: str, out_dir: str, *, thresh: in
     gs = to_gray(s)
     p_t = preprocess_gray(gt)
     p_s = preprocess_gray(gs)
+    if align:
+        p_s, s = align_affine_ecc(p_t, p_s, s)
 
     # Difference + save diff image
     diff = subtract_images(p_t, p_s)
@@ -191,8 +205,9 @@ def _parse_args():
     p.add_argument('--out', '-o', default='EDA_Output/preprocessing', help='Output directory')
     p.add_argument('--thresh', type=int, default=30, help='Threshold for diff -> mask')
     p.add_argument('--min-area', type=int, default=50, help='Minimum ROI area in pixels')
+    p.add_argument('--align', action='store_true', help='Align test to template before subtraction')
     return p.parse_args()
 
 if __name__ == '__main__':
     args = _parse_args()
-    run_pipeline(args.template, args.test, args.out, thresh=args.thresh, min_area=args.min_area)
+    run_pipeline(args.template, args.test, args.out, thresh=args.thresh, min_area=args.min_area, align=args.align)
