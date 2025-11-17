@@ -115,6 +115,8 @@ temp_results_*.json
 *.tmp
 *.temp
 
+# Ignore trained model file
+training_outputs/model_best.pth
 
 
 # Large data files
