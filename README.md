@@ -31,8 +31,8 @@ CircuitGuard is an AI-powered PCB defect detection system that automates the ide
 
 <table>
 <td align="center">
-      <img src="Images/4.jpg" width="400" />
-      <p>Annotated Image</p>
+      <img src="Images/Annotated Result.jpg" width="400" />
+      <p>Annotated Result</p>
     </td>
 </table>
 
@@ -248,6 +248,7 @@ This project is for educational and research purposes.
 ## 📞 Support
 
 For issues and questions, please create an issue in the repository.
+
 
 
 
