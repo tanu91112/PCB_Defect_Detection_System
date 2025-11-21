@@ -1,6 +1,7 @@
-# 🔍 PCB Defect Detection System
+# 🔍 CircuitGuard: PCB Defect Detection System
 
-A comprehensive deep learning system for automated PCB defect detection using EfficientNet-B4 and computer vision techniques.
+CircuitGuard is an AI-powered PCB defect detection system that automates the identification of manufacturing defects using a hybrid pipeline of advanced computer vision and EfficientNet-B4 deep learning. The system provides real-time defect analysis through a Flask-based web interface, offering annotated outputs and downloadable CSV inspection reports.
+
 
 <table>
   <tr>
@@ -15,6 +16,25 @@ A comprehensive deep learning system for automated PCB defect detection using Ef
   </tr>
 </table>
 
+## 🛠 Problem Statement
+- Manual PCB inspection is slow, inconsistent, and expensive.
+- Around 15–20% of PCBs contain manufacturing defects.
+- Human fatigue reduces inspection accuracy.
+- Each defective board can cost $50–500, increasing overall manufacturing loss.
+
+## 💡 Proposed Solution
+- AI-powered PCB defect detection using Deep Learning + Computer Vision.
+- Real-time defect detection through a web-based interface.
+- Consistent and reliable automated analysis.
+- Export of reports (CSV and annotated images).
+- High accuracy using an EfficientNet-B4 model.
+
+<table>
+<td align="center">
+      <img src="Images/4.jpg" width="400" />
+      <p>Annotated Image</p>
+    </td>
+</table>
 
 ## 🚀 Features
 
@@ -23,6 +43,7 @@ A comprehensive deep learning system for automated PCB defect detection using Ef
 - **High Accuracy**: 98.34% test accuracy with EfficientNet-B4 model
 - **Export Capabilities**: Download annotated images and CSV prediction logs
 - **Interactive UI**: User-friendly web interface with parameter controls
+
 
 ## 📁 Project Structure
 
@@ -48,11 +69,37 @@ PCBDEFECT_DETECTION/
 └── preprocess_example/          # Sample preprocessing outputs
 ```
 
+## 🏗️ System Architecture
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="Images/System Architecture.png" width="1000" />
+      <p>System Architecture</p>
+    </td>
+  </tr>
+</table>
+
+
+### 🧭 Overview
+The system consists of three main components:
+1. **Preprocessing Pipeline**: Image processing and ROI extraction
+2. **Deep Learning Model**: EfficientNet-B4 classifier for defect classification
+3. **Web Application**: Flask-based interface for real-time inference
+
+### 💻 Technology Stack
+- **Backend**: Python 3.8+, Flask, OpenCV, PyTorch
+- **Frontend**: HTML5, CSS3, JavaScript
+- **ML Framework**: PyTorch, Torchvision
+- **Computer Vision**: OpenCV, NumPy
+- **Visualization**: Matplotlib, scikit-learn
+
 ## 🛠️ Installation
 
 ### Prerequisites
 - Python 3.8+
-- CUDA-compatible GPU (recommended)
+- **CUDA-compatible GPU** (recommended)
+
 
 ### Setup
 1. **Clone the repository**
@@ -127,6 +174,7 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
   - short: 99.56%
   - spur: 97.96%
   - spurious copper: 98.67%
+    
   ![Test Confusion Matrix](evaluation_outputs/test_confusion_matrix.jpg)
 
 ## 🔧 Parameters
@@ -164,10 +212,13 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
 </table>
 
 
-### Web App
+### 💻 Web App
 - Annotated images with bounding boxes
 - CSV logs with prediction details
 - Processing time metrics
+
+### ⚙️ PCB Report File link :  
+https://1drv.ms/b/c/c76b039bc7fe048f/EWffnzlXd5NAsjYGdhdAt80BBWRH-8QjBns4HNNX5lenrQ?e=T2E0Er
 
 ## 🐛 Troubleshooting
 
@@ -177,7 +228,7 @@ python src\evaluate_model.py --data dataset --model training_outputs\model_best.
 3. **Memory issues**: Reduce batch size or image size
 4. **Import errors**: Check all dependencies are installed
 
-### Performance Tips
+### 🚀 Performance Tips
 - Use GPU for faster training and inference
 - Adjust batch size based on available memory
 - Use smaller image sizes for faster processing
@@ -189,7 +240,7 @@ This project is for educational and research purposes.
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create feature branch
+2. Create a feature branch
 3. Commit changes
 4. Push to branch
 5. Create Pull Request
