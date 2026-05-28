@@ -6,10 +6,10 @@
 The system consists of three main components:
 1. **Preprocessing Pipeline**: Image processing and ROI extraction
 2. **Deep Learning Model**: EfficientNet-B4 classifier for defect classification
-3. **Web Application**: Flask-based interface for real-time inference
+3. **Web Application**: FastAPI-based interface for real-time inference
 
 ### Technology Stack
-- **Backend**: Python 3.8+, Flask, OpenCV, PyTorch
+- **Backend**: Python 3.11, FastAPI, OpenCV, PyTorch
 - **Frontend**: HTML5, CSS3, JavaScript
 - **ML Framework**: PyTorch, Torchvision
 - **Computer Vision**: OpenCV, NumPy
@@ -79,7 +79,7 @@ The system consists of three main components:
 - Detailed results JSON
 
 #### `web_app.py`
-**Purpose**: Flask web application for real-time inference
+**Purpose**: FastAPI web application for real-time inference
 
 **Routes**:
 - `GET /`: Main interface
@@ -358,7 +358,7 @@ logging.basicConfig(
 ### Libraries
 - PyTorch: https://pytorch.org/
 - OpenCV: https://opencv.org/
-- Flask: https://flask.palletsprojects.com/
+- FastAPI: https://fastAPI.palletsprojects.com/
 
 ### Datasets
 - DeepPCB Dataset: PCB defect detection benchmark
