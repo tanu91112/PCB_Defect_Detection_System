@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 🎯 Goal
@@ -8,26 +9,35 @@ It’s a complete AI-powered PCB quality inspection system with automated report
 
 """
 
-from flask import Flask, render_template, request, jsonify, send_file, Response
-try:
-    from flask_caching import Cache  # type: ignore
-except ImportError:
-    # Fallback if flask-caching is not available
-    print("Warning: flask-caching not available, using simple dictionary cache")
-    class SimpleCache:
-        def __init__(self):
-            self._cache = {}
-        def get(self, key):
-            return self._cache.get(key)
-        def set(self, key, value, timeout=300):
-            self._cache[key] = value
-    class Cache:
-        def __init__(self, app=None, config=None):
-            self.cache = SimpleCache()
-        def get(self, key):
-            return self.cache.get(key)
-        def set(self, key, value, timeout=300):
-            self.cache.set(key, value, timeout)
+from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response as FastAPIResponse
+from fastapi.templating import Jinja2Templates
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from fastapi.middleware.cors import CORSMiddleware
+
+class SimpleCache:
+    def __init__(self, default_timeout: int = 300):
+        self._cache = {}
+        self._default_timeout = default_timeout
+
+    def get(self, key):
+        value = self._cache.get(key)
+        if value is None:
+            return None
+        expiry, item = value
+        if expiry is not None and time.time() > expiry:
+            self._cache.pop(key, None)
+            return None
+        return item
+
+    def set(self, key, value, timeout: int = None):
+        expiry = None
+        if timeout is None:
+            timeout = self._default_timeout
+        if timeout > 0:
+            expiry = time.time() + timeout
+        self._cache[key] = (expiry, value)
+
 import cv2
 import numpy as np
 import torch
@@ -54,15 +64,25 @@ from reportlab.platypus import (
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
-app = Flask(__name__)
+app = FastAPI()
 os.makedirs("outputs", exist_ok=True)
 
-# Configure caching
-cache = Cache(app, config={
-    'CACHE_TYPE': 'SimpleCache',
-    'CACHE_DEFAULT_TIMEOUT': 300,  # 5 minutes
-    'CACHE_THRESHOLD': 100  # Maximum number of items to store
-})
+# Configure caching with a single pure-Python cache instance
+cache = SimpleCache(default_timeout=300)
+
+# Templates
+# Create a single Jinja2Templates instance and ensure a clean Jinja2 Environment
+templates = Jinja2Templates(directory="templates")
+
+
+# CORS (allow all origins for now)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Constants
 MEAN = [0.485, 0.456, 0.406]
@@ -375,31 +395,25 @@ def generate_pdf_report(session_id, predictions, bar_plot_path=None, scatter_plo
 
 
 # ---------------- ROUTES ----------------
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.get('/', response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse('index.html', {"request": request})
 
 
-@app.route('/detect', methods=['POST'])
-def detect_defects():
+@app.post('/detect')
+async def detect_defects(template: UploadFile = File(...), test: UploadFile = File(...),
+                         thresh: int = Form(30), min_area: int = Form(50),
+                         conf_thresh: float = Form(0.6), align: str = Form('false')):
     try:
         start_time = time.time()
         if model is None:
-            return jsonify({'success': False, 'error': 'Model not loaded'})
+            return JSONResponse({'success': False, 'error': 'Model not loaded'})
 
-        thresh = int(request.form.get('thresh', 30))
-        min_area = int(request.form.get('min_area', 50))
-        conf_thresh = float(request.form.get('conf_thresh', 0.6))
-        use_alignment = str(request.form.get('align', 'false')).lower() in ('1', 'true', 'yes')
-
-        template_file = request.files.get('template')
-        test_file = request.files.get('test')
-        if not template_file or not test_file:
-            return jsonify({'success': False, 'error': 'Both template and test images required'})
+        use_alignment = str(align).lower() in ('1', 'true', 'yes')
 
         # Read image data for hashing
-        template_data = template_file.read()
-        test_data = test_file.read()
+        template_data = await template.read()
+        test_data = await test.read()
         
         # Create cache key based on image hashes and parameters
         template_hash = create_image_hash(template_data)
@@ -410,13 +424,13 @@ def detect_defects():
         cached_result = cache.get(cache_key)
         if cached_result:
             print(f"🎯 Cache hit for key: {cache_key}")
-            return jsonify(cached_result)
+            return JSONResponse(cached_result)
 
         # Decode images
         template_img = cv2.imdecode(np.frombuffer(template_data, np.uint8), cv2.IMREAD_COLOR)
         test_img = cv2.imdecode(np.frombuffer(test_data, np.uint8), cv2.IMREAD_COLOR)
         if template_img is None or test_img is None:
-            return jsonify({'success': False, 'error': 'Invalid image format'})
+            return JSONResponse({'success': False, 'error': 'Invalid image format'})
 
         template_blur = cv2.GaussianBlur(template_img, (5, 5), 0)
         test_blur = cv2.GaussianBlur(test_img, (5, 5), 0)
@@ -618,32 +632,31 @@ def detect_defects():
         cache.set(cache_key, response_data)
         print(f"💾 Cached result with key: {cache_key}")
         
-        return jsonify(response_data)
-
+        return JSONResponse(response_data)
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return JSONResponse({'success': False, 'error': str(e)})
 
 
 # ------------------------ DOWNLOAD ROUTES ------------------------
 
-@app.route('/download_report/<session_id>')
-def download_report(session_id):
+@app.get('/download_report/{session_id}')
+async def download_report(session_id: str):
     path = f"outputs/report_{session_id}.pdf"
     if not os.path.exists(path):
-        return "Report not found", 404
-    return send_file(path, as_attachment=True)
+        return JSONResponse(content={"error": "Report not found"}, status_code=404)
+    return FileResponse(path, media_type='application/pdf', filename=os.path.basename(path))
 
 
-@app.route('/download_image/<session_id>')
-def download_image(session_id):
+@app.get('/download_image/{session_id}')
+async def download_image(session_id: str):
     """Download annotated image (backward compatibility)"""
     path = f"outputs/annotated_{session_id}.png"
     if os.path.exists(path):
-        return send_file(path, as_attachment=True, download_name=f"annotated_image_{session_id}.png")
-    return "Image not found", 404
+        return FileResponse(path, media_type='image/png', filename=f"annotated_image_{session_id}.png")
+    return JSONResponse(content={"error": "Image not found"}, status_code=404)
 
-@app.route('/download_image/<session_id>/<image_type>')
-def download_specific_image(session_id, image_type):
+@app.get('/download_image/{session_id}/{image_type}')
+async def download_specific_image(session_id: str, image_type: str):
     """Download specific image type with proper filename"""
     filename_map = {
         'template': f'template_{session_id}.png',
@@ -663,16 +676,18 @@ def download_specific_image(session_id, image_type):
     }
     
     if image_type not in filename_map:
-        return "Invalid image type", 404
+        return JSONResponse(content={"error": "Invalid image type"}, status_code=404)
         
     path = f"outputs/{filename_map[image_type]}"
     if os.path.exists(path):
-        return send_file(path, as_attachment=True, download_name=download_name_map[image_type])
-    return "Image not found", 404
+        # Guess media type by extension
+        media_type = 'image/png' if path.lower().endswith('.png') else 'application/octet-stream'
+        return FileResponse(path, media_type=media_type, filename=download_name_map[image_type])
+    return JSONResponse(content={"error": "Image not found"}, status_code=404)
 
 
-@app.route('/download_plot/<session_id>/<plot_type>')
-def download_plot(session_id, plot_type):
+@app.get('/download_plot/{session_id}/{plot_type}')
+async def download_plot(session_id: str, plot_type: str):
     """Download saved plots (bar, scatter, pie) with friendly filenames"""
     plot_filename_map = {
         'bar': f'bar_plot_{session_id}.png',
@@ -687,25 +702,26 @@ def download_plot(session_id, plot_type):
     }
 
     if plot_type not in plot_filename_map:
-        return "Invalid plot type", 404
+        return JSONResponse(content={"error": "Invalid plot type"}, status_code=404)
 
     path = f"outputs/{plot_filename_map[plot_type]}"
     if os.path.exists(path):
-        return send_file(path, as_attachment=True, download_name=plot_download_name_map[plot_type])
-    return "Plot not found", 404
+        media_type = 'image/png' if path.lower().endswith('.png') else 'application/octet-stream'
+        return FileResponse(path, media_type=media_type, filename=plot_download_name_map[plot_type])
+    return JSONResponse(content={"error": "Plot not found"}, status_code=404)
 
 
-@app.route('/download_log/<session_id>')
-def download_log(session_id):
+@app.get('/download_log/{session_id}')
+async def download_log(session_id: str):
     json_path = f"outputs/results_{session_id}.json"
     if not os.path.exists(json_path):
-        return "Log not found", 404
+        return JSONResponse(content={"error": "Log not found"}, status_code=404)
 
     try:
         with open(json_path, 'r') as f:
             results = json.load(f)
     except Exception:
-        return "Error reading log", 500
+        return JSONResponse(content={"error": "Error reading log"}, status_code=500)
 
     import csv
     import io
@@ -726,9 +742,7 @@ def download_log(session_id):
         "Content-Disposition": f"attachment; filename=prediction_log_{session_id}.csv",
         "Content-Type": "text/csv"
     }
-    return Response(csv_data, headers=headers)
+    return FastAPIResponse(content=csv_data, headers=headers)
 
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000) #venv\Scripts\python.exe web_app.py
- 
+#uvicorn web_app:app --reload
