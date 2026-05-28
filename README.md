@@ -1,7 +1,6 @@
 # 🔍 CircuitGuard: PCB Defect Detection System
 
-CircuitGuard is an AI-powered PCB defect detection system that automates the identification of manufacturing defects using a hybrid pipeline of advanced computer vision and EfficientNet-B4 deep learning. The system provides real-time defect analysis through a Flask-based web interface, offering annotated outputs and downloadable CSV inspection reports.
-
+CircuitGuard is an AI-powered PCB defect detection system that automates the identification of manufacturing defects using a hybrid pipeline of advanced computer vision and EfficientNet-B4 deep learning. The system provides real-time defect analysis through a FastAPI-based web interface, offering annotated outputs and downloadable CSV inspection reports.
 
 <table>
   <tr>
@@ -26,7 +25,7 @@ CircuitGuard is an AI-powered PCB defect detection system that automates the ide
 - AI-powered PCB defect detection using Deep Learning + Computer Vision.
 - Real-time defect detection through a web-based interface.
 - Consistent and reliable automated analysis.
-- Export of reports (CSV and annotated images).
+- Export of reports (CSV, images, and logs).
 - High accuracy using an EfficientNet-B4 model.
 
 <table>
@@ -44,30 +43,24 @@ CircuitGuard is an AI-powered PCB defect detection system that automates the ide
 - **Export Capabilities**: Download annotated images and CSV prediction logs
 - **Interactive UI**: User-friendly web interface with parameter controls
 
+---
 
 ## 📁 Project Structure
 
 ```
 PCBDEFECT_DETECTION/
-├── data/                          # Dataset (DeepPCB format)
-│   ├── group00041/               # Sample group 1
-│   ├── group12000/               # Sample group 2
-│   └── ...
-├── src/                          # Source code
-│   ├── preprocessing.py          # Image preprocessing pipeline
-│   ├── build_dataset.py         # Dataset creation and splitting
-│   ├── train_efficientnet_b4.py  # Model training script
-│   ├── evaluate_model.py        # Model evaluation
-│   └── evaluate_rois.py          # ROI evaluation
-├── templates/                    # Web interface
-│   └── index.html               # Main UI
-├── web_app.py                   # Flask web application
-├── requirements.txt             # Python dependencies
-├── dataset/                     # Generated training data
-├── training_outputs/            # Model checkpoints and plots
-├── evaluation_outputs/          # Test results
-└── preprocess_example/          # Sample preprocessing outputs
+├── data/
+├── src/
+├── templates/
+├── web_app.py                # FastAPI web application
+├── requirements.txt
+├── dataset/
+├── training_outputs/
+├── evaluation_outputs/
+└── preprocess_example/
 ```
+
+---
 
 ## 🏗️ System Architecture
 
@@ -80,177 +73,142 @@ PCBDEFECT_DETECTION/
   </tr>
 </table>
 
-
 ### 🧭 Overview
 The system consists of three main components:
 1. **Preprocessing Pipeline**: Image processing and ROI extraction
 2. **Deep Learning Model**: EfficientNet-B4 classifier for defect classification
-3. **Web Application**: Flask-based interface for real-time inference
+3. **Web Application**: FastAPI-based interface for real-time inference
 
 ### 💻 Technology Stack
-- **Backend**: Python 3.8+, Flask, OpenCV, PyTorch
+- **Backend**: Python, FastAPI, OpenCV, PyTorch
 - **Frontend**: HTML5, CSS3, JavaScript
 - **ML Framework**: PyTorch, Torchvision
 - **Computer Vision**: OpenCV, NumPy
 - **Visualization**: Matplotlib, scikit-learn
 
+---
+
 ## 🛠️ Installation
 
 ### Prerequisites
 - Python 3.8+
-- **CUDA-compatible GPU** (recommended)
-
+- CUDA-compatible GPU (recommended)
 
 ### Setup
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd PCBDEFECT_DETECTION
-   ```
+```bash
+git clone <repository-url>
+cd PCBDEFECT_DETECTION
+```
 
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate  # Windows
-   # or
-   source venv/bin/activate  # Linux/Mac
-   ```
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-4. **Prepare dataset**
-   ```bash
-   python src\build_dataset.py --data-root data --out-root dataset
-   ```
+```bash
+python src\build_dataset.py --data-root data --out-root dataset
+```
 
-5. **Train model**
-   ```bash
-   python src\train_efficientnet_b4.py --data dataset --out training_outputs --epochs 20
-   ```
+```bash
+python src\train_efficientnet_b4.py --data dataset --out training_outputs --epochs 20
+```
 
-6. **Run web application**
-   ```bash
-   python web_app.py
-   ```
+```bash
+uvicorn web_app:app --reload
+```
 
-   RUN  :- venv\Scripts\python.exe web_app.py
+---
 
 ## 🎯 Usage
 
-### Web Interface
-1. Open browser to `http://localhost:5000`
-2. Upload template and test images
-3. Adjust parameters (threshold, min area, confidence)
-4. Click "Detect Defects"
-5. Download annotated images and CSV logs
+### 🌐 Web Interface
+1. Open:
+```
+http://localhost:8000
+```
 
-![PCB Image 1](Images/1.png)
-![PCB Image 2](Images/2.png)
-![PCB Image 3](Images/3.png)
+2. Upload template and test images  
+3. Adjust parameters  
+4. Run detection  
+5. Download results (images, CSV, logs)
 
+---
 
-### Command Line
+### 💻 Command Line
 ```bash
-# Preprocessing
 python src\preprocessing.py -t template.jpg -s test.jpg -o output
-
-# Training
 python src\train_efficientnet_b4.py --data dataset --epochs 20
-
-# Evaluation
 python src\evaluate_model.py --data dataset --model training_outputs\model_best.pth
 ```
+
+---
 
 ## 📊 Model Performance
 
 - **Test Accuracy**: 98.34%
-- **Per-class Performance**:
-  - mousebite: 97.64%
-  - open: 96.92%
-  - pinhole: 100.00%
-  - short: 99.56%
-  - spur: 97.96%
-  - spurious copper: 98.67%
-    
-  ![Test Confusion Matrix](evaluation_outputs/test_confusion_matrix.jpg)
 
-## 🔧 Parameters
+### Per-class Performance:
+- mousebite: 97.64%
+- open: 96.92%
+- pinhole: 100.00%
+- short: 99.56%
+- spur: 97.96%
+- spurious copper: 98.67%
 
-### Preprocessing
-- `thresh`: Difference threshold (default: 30)
-- `min_area`: Minimum ROI area (default: 50)
-- `conf_thresh`: Confidence threshold (default: 0.6)
-
-### Training
-- `epochs`: Training epochs (default: 20)
-- `batch_size`: Batch size (default: 32)
-- `lr`: Learning rate (default: 1e-4)
-- `img_size`: Input image size (default: 128)
+---
 
 ## 📈 Outputs
 
-### Training
-- `model_best.pth`: Best model checkpoint
-- `loss_curve.jpg`: Training/validation loss
-- `accuracy_curve.jpg`: Training/validation accuracy
-- `confusion_matrix.jpg`: Test set confusion matrix
+### Training Outputs
+- model_best.pth  
+- loss_curve.jpg  
+- accuracy_curve.jpg  
+- confusion_matrix.jpg  
 
-<table>
-  <tr>
-    <td align="center">
-      <img src="training_outputs/accuracy_curve.jpg" width="300" />
-      <p>Accuracy Curve</p>
-    </td>
-    <td align="center">
-      <img src="training_outputs/loss_curve.jpg" width="300" />
-      <p>Loss Curve</p>
-    </td>
-  </tr>
-</table>
+### Web Outputs
+- Annotated images
+- CSV logs
+- Prediction reports
+- Processing metrics
 
+---
 
-### 💻 Web App
-- Annotated images with bounding boxes
-- CSV logs with prediction details
-- Processing time metrics
-
-### ⚙️ PCB Report File link :  
+## ⚙️ PCB Report File
 https://1drv.ms/b/c/c76b039bc7fe048f/EWffnzlXd5NAsjYGdhdAt80BBWRH-8QjBns4HNNX5lenrQ?e=T2E0Er
 
+---
+
 ## 🐛 Troubleshooting
+- Model not loading → check training_outputs
+- CUDA issues → install correct PyTorch version
+- Memory issues → reduce batch size
+- Import issues → reinstall dependencies
 
-### Common Issues
-1. **Model not loading**: Ensure `training_outputs/model_best.pth` exists
-2. **CUDA errors**: Install PyTorch with CUDA support
-3. **Memory issues**: Reduce batch size or image size
-4. **Import errors**: Check all dependencies are installed
+---
 
-### 🚀 Performance Tips
-- Use GPU for faster training and inference
-- Adjust batch size based on available memory
-- Use smaller image sizes for faster processing
+## 🚀 Performance Tips
+- Use GPU for faster inference
+- Optimize image size for speed
+- Tune thresholds for accuracy
+
+---
 
 ## 📝 License
+Educational and research purposes only.
 
-This project is for educational and research purposes.
+---
 
 ## 🤝 Contributing
+1. Fork repo  
+2. Create branch  
+3. Commit changes  
+4. Pull request  
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit changes
-4. Push to branch
-5. Create Pull Request
+---
 
 ## 📞 Support
-
-For issues and questions, please create an issue in the repository.
-
-
-
-
-
-
+Raise an issue in repository.
