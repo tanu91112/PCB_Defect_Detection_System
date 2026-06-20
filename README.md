@@ -73,6 +73,18 @@ PCBDEFECT_DETECTION/
   </tr>
 </table>
 
+<p align="center">
+  <img src="Images/1.png" width="1200" height="1000" />
+</p>
+
+<p align="center">
+  <img src="Images/2.png" width="1200" height="1000" />
+</p>
+
+<p align="center">
+  <img src="Images/3.png" width="1200" height="1200" />
+</p>
+
 ### 🧭 Overview
 The system consists of three main components:
 1. **Preprocessing Pipeline**: Image processing and ROI extraction
