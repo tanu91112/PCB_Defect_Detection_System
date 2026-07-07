@@ -2,6 +2,7 @@
 
 CircuitGuard is an AI-powered PCB defect detection system that automates the identification of manufacturing defects using a hybrid pipeline of advanced computer vision and EfficientNet-B4 deep learning. The system provides real-time defect analysis through a FastAPI-based web interface, offering annotated outputs and downloadable CSV inspection reports.
 
+
 <table>
   <tr>
     <td align="center">
