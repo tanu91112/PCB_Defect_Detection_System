@@ -15,6 +15,7 @@ CircuitGuard is an AI-powered PCB defect detection system that automates the ide
   </tr>
 </table>
 
+
 ## 🛠 Problem Statement
 - Manual PCB inspection is slow, inconsistent, and expensive.
 - Around 15–20% of PCBs contain manufacturing defects.
